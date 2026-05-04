@@ -144,13 +144,15 @@ class DigitizerApp:
         tk.Button(self.left_panel, text="Smooth Curves (SavGol)", command=self.smooth_curves, width=25).pack(pady=2)
         tk.Button(self.left_panel, text="Resample (Uniform X Grid)", command=self.resample_curves, width=25).pack(pady=2)
         tk.Button(self.left_panel, text="Find Peaks/Valleys", command=self.find_peaks, width=25).pack(pady=2)
+        tk.Button(self.left_panel, text="Calculate Derivative", command=self.calc_derivative, width=25).pack(pady=2)
+        tk.Button(self.left_panel, text="Calculate Integral", command=self.calc_integral, width=25).pack(pady=2)
         
         tk.Label(self.left_panel, text="5. CURVE MANAGEMENT", font=("Arial", 11, "bold"), bg="#f5f5f5").pack(anchor=tk.W, pady=(15, 5))
         tk.Button(self.left_panel, text="Rename Curve", command=self.rename_curve, width=25).pack(pady=2)
         tk.Button(self.left_panel, text="Delete Curve", command=self.delete_curve, width=25).pack(pady=2)
         tk.Button(self.left_panel, text="Shift / Scale Curve", command=self.math_curve, width=25).pack(pady=2)
         tk.Button(self.left_panel, text="Curve Statistics", command=self.curve_stats, width=25).pack(pady=2)
-        tk.Button(self.left_panel, text="Calculate Difference (A - B)", command=self.diff_curves, width=25).pack(pady=2)
+        tk.Button(self.left_panel, text="Combine Curves (Math)", command=self.combine_curves, width=25).pack(pady=2)
         
         tk.Label(self.left_panel, text="6. VIEW & EXPORT", font=("Arial", 11, "bold"), bg="#f5f5f5").pack(anchor=tk.W, pady=(15, 5))
         
@@ -1345,25 +1347,29 @@ class DigitizerApp:
         cb.bind("<<ComboboxSelected>>", update_stats)
         update_stats()
 
-    def diff_curves(self):
+    def combine_curves(self):
         if len(self.extractor.curves) < 2:
             messagebox.showwarning("Warning", "Need at least 2 curves.")
             return
         dialog = tk.Toplevel(self.root)
-        dialog.title("Calculate Difference")
-        dialog.geometry("300x250")
+        dialog.title("Combine Curves")
+        dialog.geometry("300x300")
         
         tk.Label(dialog, text="Curve A:").pack(pady=2)
         var_a = tk.StringVar(value=list(self.extractor.curves.keys())[0])
         ttk.Combobox(dialog, textvariable=var_a, values=list(self.extractor.curves.keys()), state="readonly").pack()
         
-        tk.Label(dialog, text="Curve B (to subtract):").pack(pady=2)
-        var_b = tk.StringVar(value=list(self.extractor.curves.keys())[1])
+        tk.Label(dialog, text="Operation:").pack(pady=2)
+        op_var = tk.StringVar(value="-")
+        ttk.Combobox(dialog, textvariable=op_var, values=["+", "-", "*", "/"], state="readonly", width=5).pack()
+        
+        tk.Label(dialog, text="Curve B:").pack(pady=2)
+        var_b = tk.StringVar(value=list(self.extractor.curves.keys())[1] if len(self.extractor.curves) > 1 else list(self.extractor.curves.keys())[0])
         ttk.Combobox(dialog, textvariable=var_b, values=list(self.extractor.curves.keys()), state="readonly").pack()
         
         tk.Label(dialog, text="New Curve Name:").pack(pady=2)
         name_entry = tk.Entry(dialog)
-        name_entry.insert(0, "Difference")
+        name_entry.insert(0, "Combined_Curve")
         name_entry.pack()
         
         def apply():
@@ -1372,13 +1378,13 @@ class DigitizerApp:
                 from scipy.interpolate import interp1d
                 ca = var_a.get()
                 cb = var_b.get()
+                op = op_var.get()
                 nname = name_entry.get()
-                if not nname or ca == cb: return
+                if not nname: return
                 
                 xa, ya = np.array(self.extractor.curves[ca]['x']), np.array(self.extractor.curves[ca]['y'])
                 xb, yb = np.array(self.extractor.curves[cb]['x']), np.array(self.extractor.curves[cb]['y'])
                 
-                # Resample B to A's x grid where they overlap
                 xmin = max(np.min(xa), np.min(xb))
                 xmax = min(np.max(xa), np.max(xb))
                 
@@ -1393,11 +1399,18 @@ class DigitizerApp:
                 fb = interp1d(xb, yb, kind='linear')
                 new_yb = fb(new_x)
                 
-                diff_y = new_ya - new_yb
+                if op == "+": new_y = new_ya + new_yb
+                elif op == "-": new_y = new_ya - new_yb
+                elif op == "*": new_y = new_ya * new_yb
+                elif op == "/": 
+                    safe_yb = np.where(new_yb == 0, 1e-12, new_yb)
+                    new_y = new_ya / safe_yb
+                else:
+                    new_y = new_ya
                 
                 self.extractor.curves[nname] = {
                     'x': new_x,
-                    'y': diff_y,
+                    'y': new_y,
                     'y_axis': self.extractor.curves[ca]['y_axis']
                 }
                 self.replot()
@@ -1406,6 +1419,79 @@ class DigitizerApp:
                 messagebox.showerror("Error", str(e))
                 
         tk.Button(dialog, text="Calculate", command=apply).pack(pady=10)
+
+    def calc_derivative(self):
+        if not self.extractor.curves: return
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Calculate Derivative")
+        dialog.geometry("300x150")
+        tk.Label(dialog, text="Select Curve:").pack(pady=5)
+        curve_var = tk.StringVar(value=list(self.extractor.curves.keys())[0])
+        ttk.Combobox(dialog, textvariable=curve_var, values=list(self.extractor.curves.keys()), state="readonly").pack()
+        tk.Label(dialog, text="New Curve Name:").pack(pady=5)
+        name_entry = tk.Entry(dialog)
+        name_entry.insert(0, "Derivative")
+        name_entry.pack()
+        def apply():
+            try:
+                import numpy as np
+                c = curve_var.get()
+                nname = name_entry.get()
+                if not nname: return
+                x = np.array(self.extractor.curves[c]['x'])
+                y = np.array(self.extractor.curves[c]['y'])
+                sort_idx = np.argsort(x)
+                x = x[sort_idx]
+                y = y[sort_idx]
+                dy = np.gradient(y, x)
+                self.extractor.curves[nname] = {
+                    'x': x,
+                    'y': dy,
+                    'y_axis': self.extractor.curves[c]['y_axis']
+                }
+                self.replot()
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("Error", str(e))
+        tk.Button(dialog, text="Calculate", command=apply).pack(pady=10)
+
+    def calc_integral(self):
+        if not self.extractor.curves: return
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Calculate Integral")
+        dialog.geometry("300x150")
+        tk.Label(dialog, text="Select Curve:").pack(pady=5)
+        curve_var = tk.StringVar(value=list(self.extractor.curves.keys())[0])
+        ttk.Combobox(dialog, textvariable=curve_var, values=list(self.extractor.curves.keys()), state="readonly").pack()
+        tk.Label(dialog, text="New Curve Name:").pack(pady=5)
+        name_entry = tk.Entry(dialog)
+        name_entry.insert(0, "Integral")
+        name_entry.pack()
+        def apply():
+            try:
+                import numpy as np
+                c = curve_var.get()
+                nname = name_entry.get()
+                if not nname: return
+                x = np.array(self.extractor.curves[c]['x'])
+                y = np.array(self.extractor.curves[c]['y'])
+                sort_idx = np.argsort(x)
+                x = x[sort_idx]
+                y = y[sort_idx]
+                int_y = np.zeros_like(y)
+                for i in range(1, len(x)):
+                    int_y[i] = int_y[i-1] + 0.5 * (y[i] + y[i-1]) * (x[i] - x[i-1])
+                self.extractor.curves[nname] = {
+                    'x': x,
+                    'y': int_y,
+                    'y_axis': self.extractor.curves[c]['y_axis']
+                }
+                self.replot()
+                dialog.destroy()
+            except Exception as e:
+                messagebox.showerror("Error", str(e))
+        tk.Button(dialog, text="Calculate", command=apply).pack(pady=10)
+
             
     def analyze(self):
         res = analyze_bode(self.extractor.curves)
