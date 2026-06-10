@@ -1,0 +1,25 @@
+# Ignore the generated PDF documentation
+project_documentation.pdf
+project_documentation_temp.pdf
+
+# Byte-compiled / optimized / DLL files
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE and Editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific temp or test files
+t.pdf
+t2.pdf
+test_pdf_out.pdf
